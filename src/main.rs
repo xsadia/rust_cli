@@ -72,7 +72,13 @@ impl Account {
     }
 
     fn withdraw(&mut self, value: i32) -> Result<(), &'static str> {
-        todo!()
+        match value > self.balance / 100 {
+            true => Err("Can't withdraw a value larger than current balance"),
+            false => {
+                self.balance -= value * 100;
+                Ok(())
+            }
+        }
     }
 }
 
@@ -94,8 +100,32 @@ impl User {
         }
     }
 
-    fn login(username: String) -> User {
-        todo!();
+    fn withdraw(&mut self, value: i32) -> Result<(), &'static str> {
+        match self.account.withdraw(value) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err)
+        }
+    }
+
+
+    fn login(username: &str, password: &str) -> Result<User, &'static str> {
+        let user_to_find = User::new(username, password);
+
+        let users = match get_users() {
+            Ok(users) => users,
+            Err(_) => {
+                return Err("Error fetching users");
+            }
+        };
+
+        match users.iter().find(|&user| *user == user_to_find) {
+            Some(found_user) => {
+                return Ok(found_user.to_owned());
+            },
+            None => {
+                return Err("user not found");
+            }
+        };
     }
 }
 
@@ -130,13 +160,17 @@ fn sign_up() -> Result<User, &'static str> {
             let user = User::new(&name.trim(), &password.trim());
             
             users.push(user.clone());
-            write_users(file, users);
+            update_users(file, users);
             return Ok(user);
         },
         Err(_) => {
             return Err("Error while openning file")
         },
     };
+}
+
+fn login() -> Result<User, &'static str> {
+    User::login(read_input("Username: ").trim(), read_input("Password: ").trim())
 }
 
 fn get_users() -> Result<Users, serde_json::Error> {
@@ -146,7 +180,7 @@ fn get_users() -> Result<Users, serde_json::Error> {
     }
 }
 
-fn write_users(mut file: File,users: Users) {
+fn update_users(mut file: File,users: Users) {
     file.write_all(serde_json::to_string_pretty(&users).unwrap().as_bytes()).expect("Error writing to file.")
 }
 
@@ -167,7 +201,7 @@ fn get_db_file() -> Result<File, String> {
 
 }
 
-fn user_deposit(user: &mut User) -> Result<(), &str> {
+fn deposit(user: &mut User) -> Result<(), &str> {
     let deposit_value = read_input("Value to deposit: ");
     match user.deposit(deposit_value.trim().parse::<i32>().unwrap()) {
         Ok(_) => {
@@ -182,7 +216,36 @@ fn user_deposit(user: &mut User) -> Result<(), &str> {
                     users[idx] = user.to_owned();
                     match get_db_file() {
                         Ok(file) => {
-                            write_users(file, users)
+                            update_users(file, users)
+                        }
+                        Err(error) => panic!("Error opening the file: {:?}", error.to_string())
+                    }
+                    
+                },
+                None => panic!("User not found")
+            }
+            Ok(())
+        },
+        _ => Err("Something went wrong while depositing")
+    }
+}
+
+fn withdraw(user: &mut User) -> Result<(), &str> {
+    let withdraw_value = read_input("Value to withdraw: ");
+    match user.withdraw(withdraw_value.trim().parse::<i32>().unwrap()) {
+        Ok(_) => {
+            let users = match get_users() {
+                Ok(users) => users,
+                Err(error) => panic!("something went wrong: {:?}", error.to_string())
+            };
+
+            match users.iter().position(|curr_user| *user == *curr_user) {
+                Some(idx) => {
+                    let mut users = get_users().expect("Error getting users");
+                    users[idx] = user.to_owned();
+                    match get_db_file() {
+                        Ok(file) => {
+                            update_users(file, users)
                         }
                         Err(error) => panic!("Error opening the file: {:?}", error.to_string())
                     }
@@ -201,9 +264,9 @@ fn main() {
     loop {
         let input = read_input("Choose an action: ");
         let result = match Action::from(input.trim()) {
-            Action::Login => Err("Login"),
+            Action::Login => login(),
             Action::CreateAccount => sign_up(),
-            Action::Exit => Err("break"),
+            Action::Exit => Err("Exit"),
             Action::Unknown => Err("Unknown"),
         };
 
@@ -216,21 +279,21 @@ fn main() {
                     let input = read_input("Choose an action: ");
 
                     let result = match UserAction::from(input.trim()) {
-                        UserAction::Deposit => user_deposit(user),
+                        UserAction::Deposit => deposit(user),
+                        UserAction::Withdraw => withdraw(user),
                         UserAction::Logout => Err("Logout"),
-                        UserAction::Withdraw => Err("Unimplemented"),
                         UserAction::Unknown => Err("Unknown")
                     };
 
                     match result {
                         Ok(()) => continue,
-                        Err(_) => break
+                        Err("Unknown") => continue,
+                        _ => break
                     }
                 }
             },
             Err("Unknown") => continue,
-            Err("break") => break,
-            Err(_) => print!("aono")
+            Err(_) => break
         }
     }
 }
